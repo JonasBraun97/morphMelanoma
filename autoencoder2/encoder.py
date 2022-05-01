@@ -3,7 +3,20 @@ import tensorflow as tf
 from tensorflow.keras.layers import Conv2D, Flatten, Dense, InputLayer
 from keras import backend as K
 from tensorflow.keras import Model
+import os
+from os import listdir
+from os.path import isfile, join
 
+
+class Sampling(tf.keras.layers.Layer):
+    """Uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
+
+    def call(self, inputs):
+        z_mean, z_log_var = inputs
+        batch = tf.shape(z_mean)[0]
+        dim = tf.shape(z_mean)[1]
+        epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
+        return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
 class Encoder(tf.keras.Model):
     def __init__(self, args):
@@ -45,7 +58,7 @@ class Encoder(tf.keras.Model):
         interDim = self.interDim
         latentDim = self.latentDim
 
-        encoderInput = InputLayer(input_shape=inputShape)
+        encoderInput = tf.keras.Input(shape=inputShape)
 
         x = encoderInput
 
@@ -58,7 +71,7 @@ class Encoder(tf.keras.Model):
                         padding='same')(x)
             filters *= 2
 
-        shape = K.int_shape(x1)
+        self.shape = K.int_shape(x)
 
         x = Flatten()(x)
         z_mean = Dense(latentDim)(x)

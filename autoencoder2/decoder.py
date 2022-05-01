@@ -2,39 +2,6 @@ import tensorflow as tf
 from tensorflow.keras.layers import InputLayer, Dense, Reshape, Conv2DTranspose
 from encoder import Encoder
 
-
-
-
-self.decoder = tf.keras.Sequential(
-    [
-        InputLayer(input_shape=(latentDim,)),
-        Dense(units=128*128*32, activation='relu'),
-        Reshape(target_shape=(128, 128, 32))
-    ]
-)
-
-for i in range(self.nlayers):
-    self.decoder.add(
-        Conv2DTranspose(
-            filters = filters,
-            kernel_size= kernelSize,
-            activation='relu',
-            strides = 2,
-            padding = 'same'
-        )
-    )
-    filters //= 2
-
-self.decoder.add(
-    Conv2DTranspose(
-        filters=3,
-        kernel_size=kernelSize,
-        activation='sigmoid',
-        padding='same',
-    )
-
-)
-
 class Decoder(tf.keras.Model):
     def __init__(self, args):
         #super(CVAE, self).__init__()
@@ -64,14 +31,13 @@ class Decoder(tf.keras.Model):
         #self.trainpath =os.path.join(self.inputDir, 'train')
         self.trainpath = self.inputDir
         self.dataSizeTrain = len(self.trainpath)
-        self.files = [f for f in listdir(self.trainpath) if isfile(join(self.trainpath, f))]
 
         #self.CVAE = self.build_model()
         self.build_model()
 
     def build_model(self):
         input_shape = (self.imageSize, self.imageSize, self.nchannels)
-        latent_inputs = Input(shape=(self.latentDim,), name='z_sampling')
+        latent_inputs = tf.keras.Input(shape=(self.latentDim,), name='z_sampling')
         x = Dense(shape[1] * shape[2] * shape[3], activation='relu')(latent_inputs)
         x = Reshape((shape[1], shape[2], shape[3]))(x)
 
