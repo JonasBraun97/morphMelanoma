@@ -2,7 +2,8 @@ import tensorflow as tf
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, UpSampling2D, Flatten, Dense, InputLayer, Conv2DTranspose, BatchNormalization, Activation
 from os import listdir
 from os.path import join, isfile
-from tensorflow.keras import layers
+from tensorflow.keras import layers, Input
+from tensorflow.keras.utils import plot_model
 
 
 class Sampling(layers.Layer):
@@ -15,39 +16,79 @@ class Sampling(layers.Layer):
         epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
-latent_dim = 10
-
-encoder_inputs = tf.keras.Input(shape=(512, 512, 3))
-x = layers.Conv2D(32, 3, activation="relu", strides=2, padding="same")(encoder_inputs)
-x = layers.Conv2D(64, 3, activation="relu", strides=2, padding="same")(x)
-x = layers.Flatten()(x)
-x = layers.Dense(10, activation="relu")(x)
-z_mean = layers.Dense(latent_dim, name="z_mean")(x)
-z_log_var = layers.Dense(latent_dim, name="z_log_var")(x)
-z = Sampling()([z_mean, z_log_var])
-encoder = tf.keras.Model(encoder_inputs, [z_mean, z_log_var, z], name="encoder")
-encoder.summary()
-
-
-latent_inputs = tf.keras.Input(shape=(latent_dim,))
-x = layers.Dense(128 * 128 * 64, activation="relu")(latent_inputs)
-x = layers.Reshape((128, 128, 64))(x)
-x = layers.Conv2DTranspose(64, 3, activation="relu", strides=2, padding="same")(x)
-x = layers.Conv2DTranspose(32, 3, activation="relu", strides=2, padding="same")(x)
-decoder_outputs = layers.Conv2DTranspose(3, 3, activation="sigmoid", padding="same")(x)
-decoder = tf.keras.Model(latent_inputs, decoder_outputs, name="decoder")
-decoder.summary()
-
 class CVAE(tf.keras.Model):
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs, args):
         super(CVAE, self).__init__(**kwargs)
-        self.encoder = encoder
-        self.decoder = decoder
+
+        self.imageSize = args.imageSize
+        self.nchannel = args.nchannel
+        self.nlayers = args.nlayers
+        self.nfilters = args.nfilters
+        self.kernelSize = args.kernelSize
+        self.latentDim = args.latentDim
+
+        self.saveDir = args.saveDir
+
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.reconstruction_loss_tracker = tf.keras.metrics.Mean(
             name="reconstruction_loss"
         )
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
+
+        self.build_model()
+
+    def build_model(self):
+        inputShape = (self.imageSize, self.imageSize, self.nchannel)
+
+        encoderInput = Input(shape=inputShape, name = 'encoderInput')
+        self.input = input
+        x = input
+
+        filters = self.nfilters
+        for i in range(self.nlayers):
+            x = Conv2D(
+                filters=filters,
+                kernel_size=self.kernelSize,
+                activation='relu',
+                strides=2,
+                padding='same'
+            )(x)
+            filters *=2
+
+        shape = tf.keras.backend.int_shape(x)
+
+        x = Flatten(x)
+        x = Dense(10, activation="relu")(x)
+        z_mean = Dense(self.latentDim, name="z_mean")(x)
+        z_log_var = Dense(self.latentDim, name="z_log_var")(x)
+        z = Sampling()([z_mean, z_log_var])
+
+        self.encoder = Model(encoderInput, [z_mean, z_log_var, z], name="encoder")
+        self.encoder.summary()
+        plot_model(self.encoder, to_file=join(self.saveDir, 'encoder.png'), show_shapes=True)
+
+
+        #build decoder
+        latentInput = Input(shape=(self.latentDim,))
+        x = Dense(shape[1] * shape[2] * shape[3], activation="relu")(latentInput)
+        x = Reshape((shape[1], shape[2], shape[3]))(x)
+
+        for i in range(self.nlayers):
+            x = Conv2DTranspose(
+                filters=filters,
+                kernel_size=self.kernelSize,
+                activation='relu',
+                strides=2,
+                padding='same'
+            )(x)
+            filters //=2
+
+        decoderOutput = Conv2DTranspose(filters = inputShape[2], kernel_size=self.kernelSize, activation="sigmoid", padding="same")(x)
+
+        self.decoder = Model(latentInput, decoderOutput, name="decoder")
+        self.decoder.summary()
+        plot_model(self.decoder, to_file=join(self.saveDir, 'decoder.png'), show_shapes=True)
+
 
     @property
     def metrics(self):
@@ -79,3 +120,21 @@ class CVAE(tf.keras.Model):
             "reconstruction_loss": self.reconstruction_loss_tracker.result(),
             "kl_loss": self.kl_loss_tracker.result(),
         }
+
+    def encode(self, data):
+        print('Encoding')
+        z_mean, _, _ = self.encoder.predict(data)
+        self.fileNames = sorted(list(glob.glob(join(self.dataDir, 'train', '*'))))
+
+        fnFile = open(join(self.saveDir, 'filenames.csv'), 'w')
+        with fnFile:
+            writer = csv.writer(fnFile)
+            for file in self.fileNames:
+                writer.writerow([file])
+
+        outFile = open(join(self.saveDir, 'encodings.csv'), 'w')
+        with outFile:
+            writer = csv.writer(outFile)
+            writer.writerows(z_mean)
+
+        print('Saved Encodings')

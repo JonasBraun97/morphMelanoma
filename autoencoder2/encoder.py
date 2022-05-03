@@ -79,3 +79,6 @@ class Encoder(tf.keras.Model):
         z = Sampling()([z_mean, z_log_var])
         encoder = Model (encoderInput, [z_mean, z_log_var, z])
         encoder.summary()
+
+    def returnShape(self):
+        reutn self.shape

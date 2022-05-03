@@ -2,13 +2,11 @@ import tensorflow as tf
 from cvae import CVAE
 import time
 import argparse
-from encoder import Encoder
-from decoder import Decoder
-from tensorflow.keras import layers
+from keras.callbacks import TerminateOnNaN, CSVLogger, ModelCheckpoint, EarlyStopping
 
 parser = argparse.ArgumentParser(description='')
 parser.add_argument('--inputDir',       type=str,   default='/Users/jones/Library/CloudStorage/OneDrive-NorthwesternUniversity/ownProject/data/mergedDAPIYFPNormalized_Subregion_13_r2_c3/singleCellImages',     help='input data directory (in train subfolder)')
-parser.add_argument('--outputDir',       type=str,   default='OutputImages/',     help='output 2 data directory (in train subfolder)')
+#parser.add_argument('--outputDir',       type=str,   default='OutputImages/',     help='output 2 data directory (in train subfolder)')
 parser.add_argument('--saveDir',       type=str,   default='Outputs/',     help='save directory')
 
 parser.add_argument('--earlystop',		type=int,	default=1,			help='use early stopping? 1=yes, 0=no')
@@ -24,7 +22,7 @@ parser.add_argument('--batchSize',     type=int,   default=50,         help='bat
 parser.add_argument('--epsilonStd',    type=float, default=1.0,        help='epsilon width')
 
 
-parser.add_argument('--imageSize',     type=int,   default=500,         help='image size')
+parser.add_argument('--imageSize',     type=int,   default=512,         help='image size')
 parser.add_argument('--nchannels',       type=int,   default=3,          help='image channels')
 
 parser.add_argument('--phase',          type=str,   default='train',    help='train or load')
@@ -33,39 +31,52 @@ args = parser.parse_args()
 
 
 def main():
-    macbookPathImage = '/Users/jones/Library/CloudStorage/OneDrive-NorthwesternUniversity/ownProject/data/mergedDAPIYFPNormalized_Subregion_13_r2_c3/singleCellImages'
-    batch_size = 32
-    im_height = 500
-    im_width = 500
+    #macbookPathImage = '/Users/jones/Library/CloudStorage/OneDrive-NorthwesternUniversity/ownProject/data/mergedDAPIYFPNormalized_Subregion_13_r2_c3/singleCellImages'
+    print('Reading in images')
     train_ds = tf.keras.preprocessing.image_dataset_from_directory(
-        macbookPathImage,
+        args.inputDir,
         label_mode= None,
         validation_split = 0.2,
         subset = "training",
         seed = 123,
-        image_size = (im_height, im_width),
-        batch_size=batch_size,)
-
+        image_size = (500, 500),
+        batch_size=args.batchSize,)
+    print('Reading in successful')
     resize_and_rescale = tf.keras.Sequential([
-        tf.keras.layers.experimental.preprocessing.Resizing(512,512),
+        tf.keras.layers.experimental.preprocessing.Resizing(args.imageSize,args.imageSize),
         tf.keras.layers.experimental.preprocessing.Rescaling(1./255)
     ])
     aug_ds = train_ds.map(
         lambda x : (resize_and_rescale(x)))
-    optimizer = tf.keras.optimizers.Adam(1e-4)
+    print('images transformed')
+
+    print('Create callbacks')
+    callbacks = []
+    term_nan = TerminateOnNaN()
+    callbacks.append(term_nan)
+    csv_logger = CSVLogger(join(args.saveDir, 'training.log'), separator='\t')
+    callbacks.append(csv_logger)
+    checkpoint = ModelCheckpoint(join(args.saveDir, 'checkpoints/cvae_weights.hdf5'), verbose = 1, save_best_only=True, save_weights_only=True)
+    callbacks.append(checkpoint)
+
+    if args.earlystop:
+        earlystop = EarlyStopping(monitor='loss', min_delta=0, patience=8)
+        callbacks.append(earlystop)
+
+    optimizer = tf.keras.optimizers.Adam(args.learnRate)
     # set the dimensionality of the latent space to a plane for visualization later
-    num_examples_to_generate = 16
-    # latent_Dim = 2
-    # epochs = 10
+    # num_examples_to_generate = 16
     random_vector_for_generation = tf.random.normal(shape=[num_examples_to_generate, args.latentDim])
-    #model = CVAE(latent_Dim)
-    encoder = Encoder(args)
-    #shape = Encoder.returnShape()
-    shape = 128
-    decoder = Decoder(args, shape)
+    print('Init model')
     model = CVAE()
+    print('Compile model')
     model.compile(optimizer = optimizer)
-    model.fit(aug_ds, epochs = args.epochs, batch_size=args.batchSize)
+    print('Model compiled. model.fit starts')
+    model.fit(aug_ds, epochs = args.epochs, batch_size=args.batchSize, callbacks=callbacks)
+
+    print('Save model weights to', args.modelDir)
+    model.save_weights(join(args.modelDir, 'weights_CVAE.hdf5'))
+    print('DONE!!')
 
 
 if __name__ == '__main__':
