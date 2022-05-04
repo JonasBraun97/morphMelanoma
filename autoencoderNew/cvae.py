@@ -1,9 +1,10 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, UpSampling2D, Flatten, Dense, InputLayer, Conv2DTranspose, BatchNormalization, Activation
-from os import listdir
-from os.path import join, isfile
-from tensorflow.keras import layers, Input
+from tensorflow.keras.layers import Conv2D, Flatten, Dense, Conv2DTranspose, Reshape
+from os.path import join
+from tensorflow.keras import layers, Input, Model
 from tensorflow.keras.utils import plot_model
+import glob
+import csv
 
 
 class Sampling(layers.Layer):
@@ -17,7 +18,7 @@ class Sampling(layers.Layer):
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
 class CVAE(tf.keras.Model):
-    def __init__(self, **kwargs, args):
+    def __init__(self, args, **kwargs):
         super(CVAE, self).__init__(**kwargs)
 
         self.imageSize = args.imageSize
@@ -26,8 +27,10 @@ class CVAE(tf.keras.Model):
         self.nfilters = args.nfilters
         self.kernelSize = args.kernelSize
         self.latentDim = args.latentDim
+        self.interDim = args.interDim
 
         self.saveDir = args.saveDir
+        self.inputDir = args.inputDir
 
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.reconstruction_loss_tracker = tf.keras.metrics.Mean(
@@ -41,8 +44,7 @@ class CVAE(tf.keras.Model):
         inputShape = (self.imageSize, self.imageSize, self.nchannel)
 
         encoderInput = Input(shape=inputShape, name = 'encoderInput')
-        self.input = input
-        x = input
+        x = encoderInput
 
         filters = self.nfilters
         for i in range(self.nlayers):
@@ -57,8 +59,8 @@ class CVAE(tf.keras.Model):
 
         shape = tf.keras.backend.int_shape(x)
 
-        x = Flatten(x)
-        x = Dense(10, activation="relu")(x)
+        x = Flatten()(x)
+        x = Dense(self.interDim, activation="relu")(x)
         z_mean = Dense(self.latentDim, name="z_mean")(x)
         z_log_var = Dense(self.latentDim, name="z_log_var")(x)
         z = Sampling()([z_mean, z_log_var])
@@ -124,7 +126,7 @@ class CVAE(tf.keras.Model):
     def encode(self, data):
         print('Encoding')
         z_mean, _, _ = self.encoder.predict(data)
-        self.fileNames = sorted(list(glob.glob(join(self.dataDir, 'train', '*'))))
+        self.fileNames = sorted(list(glob.glob(join(self.inputDir, 'train', '*'))))
 
         fnFile = open(join(self.saveDir, 'filenames.csv'), 'w')
         with fnFile:
