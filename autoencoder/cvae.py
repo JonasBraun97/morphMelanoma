@@ -5,6 +5,7 @@ from tensorflow.keras import layers, Input, Model
 from tensorflow.keras.utils import plot_model
 import glob
 import csv
+import matplotlib.pyplot as plt
 
 
 class Sampling(layers.Layer):
@@ -16,6 +17,17 @@ class Sampling(layers.Layer):
         dim = tf.shape(z_mean)[1]
         epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+
+def save_reconstruction(reconstruction, epoch):
+    for image, label in reconstruction.take(len(reconstruction)):
+        image = image.numpy()
+        fig = plt.figure(figsize=(1, 1))
+        plt.subplot(1, 1, 1)
+        plt.imshow(image)
+        plt.axis('off')
+
+        # tight_layout minimizes the overlap between 2 sub-plots
+        plt.savefig('image_at_epoch_{:04d}.png'.format(epoch))
 
 class CVAE(tf.keras.Model):
     def __init__(self, args, **kwargs):
@@ -31,12 +43,15 @@ class CVAE(tf.keras.Model):
 
         self.saveDir = args.saveDir
         self.inputDir = args.inputDir
+        self.epochs = args.epochs
+        self.currentEpoch = 1
 
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.reconstruction_loss_tracker = tf.keras.metrics.Mean(
             name="reconstruction_loss"
         )
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
+        self.val_loss_tracker = tf.keras.metrics.Mean(name="val_loss")
 
         self.build_model()
 
@@ -100,6 +115,7 @@ class CVAE(tf.keras.Model):
             self.kl_loss_tracker,
         ]
 
+    @tf.function
     def train_step(self, data):
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder(data)
@@ -123,16 +139,31 @@ class CVAE(tf.keras.Model):
             "kl_loss": self.kl_loss_tracker.result(),
         }
 
-    def encode(self, data):
+    @tf.function
+    def test_step(self, data):
+        z_mean, z_log_var, z = self.encoder(data)
+        reconstruction = self.decoder(z)
+        #save_reconstruction(reconstruction, self.currentEpoch)
+        reconstruction_loss = tf.reduce_mean(
+            tf.reduce_sum(
+                tf.keras.losses.binary_crossentropy(data, reconstruction), axis=(1, 2)
+            )
+        )
+        kl_loss = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+        kl_loss = tf.reduce_mean(tf.reduce_sum(kl_loss, axis=1))
+        total_loss = reconstruction_loss + kl_loss
+        self.val_loss_tracker.update_state(total_loss)
+        self.currentEpoch += 1
+
+    def encode(self, data, list_ds, imageCount):
         print('Encoding')
         z_mean, _, _ = self.encoder.predict(data)
-        self.fileNames = sorted(list(glob.glob(join(self.inputDir, 'train', '*'))))
 
         fnFile = open(join(self.saveDir, 'filenames.csv'), 'w')
         with fnFile:
             writer = csv.writer(fnFile)
-            for file in self.fileNames:
-                writer.writerow([file])
+            for file in list_ds.take(imageCount):
+                writer.writerow(file.numpy().decode("utf-8"))
 
         outFile = open(join(self.saveDir, 'encodings.csv'), 'w')
         with outFile:
