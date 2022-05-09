@@ -106,6 +106,8 @@ class CVAE(tf.keras.Model):
         self.decoder.summary()
         plot_model(self.decoder, to_file=join(self.saveDir, 'decoder.png'), show_shapes=True)
 
+        self.cvae = Model(encoderInput, decoderOutput, name = 'cvae')
+
 
     @property
     def metrics(self):
