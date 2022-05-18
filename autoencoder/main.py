@@ -10,20 +10,20 @@ from tensorboard import program
 from utils import readingData, readingDataWithFileNames, createCallbacks, createDirectories
 
 parser = argparse.ArgumentParser(description='')
-parser.add_argument('--inputDir',       type=str,   default='/Users/jones/Library/CloudStorage/OneDrive-NorthwesternUniversity/ownProject/data/mergedDAPIYFPNormalized_Subregion_13_r2_c3/singleCellImages',     help='input data directory (in train subfolder)')
+parser.add_argument('--inputDir',       type=str,   default='scan1_WellA1',     help='input data directory (in train subfolder)')
 #parser.add_argument('--outputDir',       type=str,   default='OutputImages/',     help='output 2 data directory (in train subfolder)')
 #parser.add_argument('--saveDir',       type=str,   default='Outputs/',     help='save directory')
 
 parser.add_argument('--earlystop',		type=int,	default=1,			help='use early stopping? 1=yes, 0=no')
 
-parser.add_argument('--epochs',         type=int,   default=2,          help='training epochs')
+parser.add_argument('--epochs',         type=int,   default=10,          help='training epochs')
 parser.add_argument('--learnRate',     type=float, default=0.0001,      help='learning rate')
 parser.add_argument('--latentDim',     type=int,   default=64,          help='latent dimension')
 parser.add_argument('--interDim',      type=int,   default=128,        help='intermediate dimension')
 parser.add_argument('--nlayers',        type=int,   default=3,          help='number of layers in models')
 parser.add_argument('--nfilters',       type=int,   default=16,         help='num convolution filters')
 parser.add_argument('--kernelSize',    type=int,   default=3,          help='number of convolutions')
-parser.add_argument('--batchSize',     type=int,   default=50,         help='batch size')
+parser.add_argument('--batchSize',     type=int,   default=128,         help='batch size')
 parser.add_argument('--epsilonStd',    type=float, default=1.0,        help='epsilon width')
 
 
@@ -34,13 +34,9 @@ parser.add_argument('--phase',          type=str,   default='train',    help='tr
 
 args = parser.parse_args()
 
-#layersList = [3,4]
-#latentList = [128,64]
+#layersList = [3,4,5,6]
+#latentList = [8]
 #test latentDim < interDim
-#interDimList = [128, 64]
-#kernelList = [3]
-#learnRateList = [0.0001, 0.001]
-#filtersList = [16, 32]
 #for i in range(len(layersList)):
 #    for j in range(len(latentList)):
 #        for k in range(len(kernelList)):

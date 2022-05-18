@@ -85,6 +85,7 @@ class CVAE(tf.keras.Model):
         plot_model(self.encoder, to_file=join(self.saveDir, 'encoder.png'), show_shapes=True)
 
 
+
         #build decoder
         latentInput = Input(shape=(self.latentDim,))
         x = Dense(shape[1] * shape[2] * shape[3], activation="relu")(latentInput)
@@ -106,7 +107,7 @@ class CVAE(tf.keras.Model):
         self.decoder.summary()
         plot_model(self.decoder, to_file=join(self.saveDir, 'decoder.png'), show_shapes=True)
 
-        self.cvae = Model(encoderInput, decoderOutput, name = 'cvae')
+        #self.cvae = Model(encoderInput, decoderOutput, name = 'cvae')
 
 
     @property
