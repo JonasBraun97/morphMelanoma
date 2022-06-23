@@ -4,11 +4,12 @@ import tensorflow as tf
 from tensorflow.keras.layers import Conv2D, Flatten, Dense, Conv2DTranspose, Reshape, Multiply
 from tensorflow.keras.layers.experimental.preprocessing import RandomFlip, RandomRotation
 from os.path import join
-from tensorflow.keras import layers, Input, Model
+from tensorflow.keras import layers, Input, Model, mixed_precision
 from tensorflow.keras.utils import plot_model
-import glob
 import csv
 import matplotlib.pyplot as plt
+import numpy as np
+from PIL import Image
 
 from utils import readingData, readingDataWithFileNames, createCallbacks, createDirectories
 
@@ -20,19 +21,29 @@ class Sampling(layers.Layer):
         z_mean, z_log_var = inputs
         batch = tf.shape(z_mean)[0]
         dim = tf.shape(z_mean)[1]
-        epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
+        epsilon = tf.keras.backend.random_normal(shape=(batch, dim), dtype= 'float16')
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
 def save_reconstruction(reconstruction, epoch):
-    for image, label in reconstruction.take(len(reconstruction)):
-        image = image.numpy()
-        fig = plt.figure(figsize=(1, 1))
-        plt.subplot(1, 1, 1)
-        plt.imshow(image)
-        plt.axis('off')
+    #tf.compat.v1.enable_eager_execution()
+    #tf.config.run_functions_eagerly(True)
+    #print("Test")
+    #print(tf.executing_eagerly())
+    if not isinstance(reconstruction, Image.Image):
+        image = tf.clip_by_value(reconstruction, 0, 1)
+        image = tf.cast(image, tf.float32).numpy()
+        image = 255 * image
+        image = image.astype(int)
+        image = Image.fromarray(image)
+    image.save('image_at_epoch_{:04d}.png'.format(epoch))
+    #image = np.asarray(reconstruction)
+    #fig = plt.figure(figsize=(1, 1))
+    #plt.subplot(1, 1, 1)
+    #plt.imshow(image)
+    #plt.axis('off')
 
-        # tight_layout minimizes the overlap between 2 sub-plots
-        plt.savefig('image_at_epoch_{:04d}.png'.format(epoch))
+    # tight_layout minimizes the overlap between 2 sub-plots
+    #plt.savefig('image_at_epoch_{:04d}.png'.format(epoch))
 
 class CVAE(tf.keras.Model):
     def __init__(self, args, **kwargs):
@@ -66,6 +77,7 @@ class CVAE(tf.keras.Model):
         self.build_model()
 
     def build_model(self):
+        mixed_precision.set_global_policy('mixed_float16')
         inputShape = (self.imageSize, self.imageSize, self.nchannel)
 
         encoderInput1 = Input(shape=inputShape, name = 'encoderInput1')
@@ -86,8 +98,8 @@ class CVAE(tf.keras.Model):
 
         x1 = Flatten()(x1)
         x1 = Dense(self.interDim, activation="relu")(x1)
-        z_mean1 = Dense(self.latentDim, name="z_mean1")(x1)
-        z_log_var1 = Dense(self.latentDim, name="z_log_var1")(x1)
+        z_mean1 = Dense(self.latentDim, name="z_mean1", dtype= tf.float32)(x1)
+        z_log_var1 = Dense(self.latentDim, name="z_log_var1", dtype= tf.float32)(x1)
         z1 = Sampling()([z_mean1, z_log_var1])
 
         self.encoder1 = Model(encoderInput1, [z_mean1, z_log_var1, z1], name="encoder1")
@@ -125,8 +137,8 @@ class CVAE(tf.keras.Model):
 
         x2 = Flatten()(x2)
         x2 = Dense(self.interDim, activation="relu")(x2)
-        z_mean2 = Dense(self.latentDim, name="z_mean2")(x2)
-        z_log_var2 = Dense(self.latentDim, name="z_log_var2")(x2)
+        z_mean2 = Dense(self.latentDim, name="z_mean2", dtype=tf.float32)(x2)
+        z_log_var2 = Dense(self.latentDim, name="z_log_var2", dtype=tf.float32)(x2)
         z2 = Sampling()([z_mean2, z_log_var2])
 
         self.encoder2 = Model(encoderInput2, [z_mean2, z_log_var2, z2], name="encoder2")
@@ -151,7 +163,7 @@ class CVAE(tf.keras.Model):
             )(x)
             filters //=2
 
-        decoderOutput = Conv2DTranspose(filters = inputShape[2], kernel_size=self.kernelSize, activation="sigmoid", padding="same")(x)
+        decoderOutput = Conv2DTranspose(filters = inputShape[2], kernel_size=self.kernelSize, activation="sigmoid", padding="same", dtype=tf.float32)(x)
 
         self.decoder = Model(latentInput, decoderOutput, name="decoder")
         self.decoder.summary()
@@ -194,9 +206,8 @@ class CVAE(tf.keras.Model):
 
             return loss1 + loss2
 
-
-
         optimizer = tf.keras.optimizers.Adam(self.learnRate)
+        optimizer = mixed_precision.LossScaleOptimizer(optimizer)
 
         losses = {"decoder": TotalLoss}
 
@@ -216,7 +227,7 @@ class CVAE(tf.keras.Model):
         with open(os.path.join(self.model_dir, 'arch_decoder1.json'), 'w') as file:
             file.write(self.decoder.to_json())
 
-    @tf.function
+    @tf.function(jit_compile=True)
     def train(self):
         self.saveDir = createDirectories(self.outputFilename)
         print('Created new Directory to store Output')
@@ -224,6 +235,7 @@ class CVAE(tf.keras.Model):
         print('Read in transformed images')
         callbacks = createCallbacks(self.saveDir, self.earlystop, self.nlayers, self.learnRate, self.latentDim, self.nfilters, self.kernelSize)
         print('Created callbacks')
+        mixed_precision.set_global_policy('mixed_float16')
 
 
         print('Start fitting model')
@@ -289,15 +301,17 @@ class CVAE(tf.keras.Model):
 
     @tf.function
     def test_step(self, data):
+        print("Start testing")
         z_mean1, z_log_var1, z1 = self.encoder1(data)
         reconstruction = self.decoder(z1)
-        #save_reconstruction(reconstruction, self.currentEpoch)
+        print("input reconstructed; Let's save it")
+        print("It's saved")
         reconstruction_loss = tf.reduce_mean(
             tf.reduce_sum(
                 tf.keras.losses.binary_crossentropy(data, reconstruction), axis=(1, 2)
             )
         )
-        kl_loss = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+        kl_loss = -0.5 * (1 + z_log_var1 - tf.square(z_mean1) - tf.exp(z_log_var1))
         kl_loss = tf.reduce_mean(tf.reduce_sum(kl_loss, axis=1))
         total_loss = reconstruction_loss + kl_loss
         self.val_loss_tracker.update_state(total_loss)
@@ -305,7 +319,7 @@ class CVAE(tf.keras.Model):
 
     def encode(self, data, list_ds, imageCount):
         print('Encoding')
-        z_mean, _, _ = self.encoder.predict(data)
+        z_mean, _, _ = self.encoder1.predict(data)
 
         fnFile = open(join(self.saveDir, 'filenames.csv'), 'w')
         with fnFile:

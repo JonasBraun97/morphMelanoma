@@ -1,16 +1,14 @@
 import tensorflow as tf
+from tensorflow.keras import mixed_precision
 from cvae import CVAE
-import time
 import argparse
-from keras.callbacks import TerminateOnNaN, CSVLogger, ModelCheckpoint, EarlyStopping, TensorBoard
 from os.path import join
 import os
-from tensorboard import program
 
 from utils import readingData, readingDataWithFileNames, createCallbacks, createDirectories
 
 parser = argparse.ArgumentParser(description='')
-parser.add_argument('--inputDir',       type=str,   default='/Users/jbj7388/coding/ownProject/autoencoder/scan1_WellA1',     help='input data directory (in train subfolder)')
+parser.add_argument('--inputDir',       type=str,   default='/Users/jones/Downloads/test2',     help='input data directory (in train subfolder)')
 parser.add_argument('--outputFilename',       type=str,   default='Output',     help='output 2 data directory (in train subfolder)')
 #parser.add_argument('--saveDir',       type=str,   default='Outputs/',     help='save directory')
 
@@ -23,7 +21,7 @@ parser.add_argument('--interDim',      type=int,   default=128,        help='int
 parser.add_argument('--nlayers',        type=int,   default=3,          help='number of layers in models')
 parser.add_argument('--nfilters',       type=int,   default=16,         help='num convolution filters')
 parser.add_argument('--kernelSize',    type=int,   default=3,          help='number of convolutions')
-parser.add_argument('--batchSize',     type=int,   default=50,         help='batch size')
+parser.add_argument('--batchSize',     type=int,   default=16,         help='batch size')
 parser.add_argument('--epsilonStd',    type=float, default=1.0,        help='epsilon width')
 
 
@@ -53,18 +51,26 @@ def main():
     if args.phase == 'train':
         args.saveDir = createDirectories(args.outputFilename)
         print('Created new Directory to store Output')
-        train_ds, val_ds = readingData(args.inputDir,args.imageSize, args.batchSize, shuffle= True, validation = 0.001)
+        # improve run time by splitting the data on multiple cores
+        tf.debugging.set_log_device_placement(True)
+        gpus = tf.config.list_logical_devices('GPU')
+        print(gpus)
+        mirrored_strategy = tf.distribute.MirroredStrategy(gpus)
+        args.batchSize *= mirrored_strategy.num_replicas_in_sync
+        train_ds, val_ds = readingData(args.inputDir,args.imageSize, args.batchSize, shuffle= True, validation = 0.1)
         print('Read in transformed images')
         callbacks = createCallbacks(args.saveDir, args.earlystop, args.nlayers, args.learnRate, args.latentDim, args.nfilters, args.kernelSize)
         print('Created callbacks')
+        #improve run time a lot by calculating float16 instead of float 32
+        mixed_precision.set_global_policy('mixed_float16')
         optimizer = tf.keras.optimizers.Adam(args.learnRate)
-        #num_examples_to_generate = 16
-        #random_vector_for_generation = tf.random.normal(shape=[num_examples_to_generate, args.latentDim])
+        #adjust optimizer to float16 instead of float 32
+        optimizer = mixed_precision.LossScaleOptimizer(optimizer)
 
         print('Init model')
         model = CVAE(args)
         print('Compile model')
-        model.compile(optimizer = optimizer)
+        model.compile(optimizer = optimizer, run_eagerly=True)
         print('Model compiled. model.fit starts')
         model.fit(train_ds, epochs = args.epochs, batch_size=args.batchSize, callbacks=callbacks)
         modelDir = os.path.join(args.saveDir, 'models')

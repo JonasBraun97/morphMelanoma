@@ -4,6 +4,22 @@ from keras.callbacks import TerminateOnNaN, CSVLogger, ModelCheckpoint, EarlySto
 from os.path import join
 import os
 
+class PerformancePlotCallback(tf.keras.callbacks.Callback):
+    def __init__(self, val_ds):
+        self.val_ds = val_ds
+
+    def on_epoch_end(self, epoch, logs=None):
+        print('Evaluating Model...')
+        reconstruct = self.model.evaluate(self.val_ds)
+        print("reconstructed")
+        image = tf.cast(reconstruct, tf.float32).numpy()
+        print("Image to numpy success")
+        image = 255 * image
+        image = image.astype(int)
+        image = Image.fromarray(image)
+        image.save('image_at_epoch_{:04d}.png'.format(epoch))
+        print("Image saved")
+
 def decode_img(img):
     # Convert the compressed string to a 3D uint8 tensor
     img = tf.io.decode_jpeg(img, channels=3)
@@ -23,7 +39,7 @@ def readingData(inputDir,imageSize, batchSize, shuffle= True, validation = 0.0):
         inputDir,
         label_mode= None,
         seed = 123,
-        image_size = (500, 500),
+        image_size = (700, 700),
         validation_split= validation,
         subset='training',
         shuffle = shuffle,
@@ -32,7 +48,7 @@ def readingData(inputDir,imageSize, batchSize, shuffle= True, validation = 0.0):
         inputDir,
         label_mode= None,
         seed = 123,
-        image_size = (500, 500),
+        image_size = (700, 700),
         validation_split= validation,
         subset='validation',
         shuffle = shuffle,
@@ -46,6 +62,9 @@ def readingData(inputDir,imageSize, batchSize, shuffle= True, validation = 0.0):
         lambda x : (resize_and_rescale(x)), num_parallel_calls=tf.data.AUTOTUNE)
     augval_ds = val_ds.map(
         lambda x : (resize_and_rescale(x)), num_parallel_calls=tf.data.AUTOTUNE)
+    # improve run time by prefetch data
+    augtrain_ds = augtrain_ds.prefetch(tf.data.AUTOTUNE)
+    augval_ds = augval_ds.prefetch(tf.data.AUTOTUNE)
     return augtrain_ds, augval_ds
 
 
@@ -57,7 +76,7 @@ def readingDataWithFileNames(inputDir,imageSize):
     image_ds = tf.keras.preprocessing.image_dataset_from_directory(
         inputDir,
         label_mode= None,
-        image_size = (500, 500),
+        image_size = (700, 700),
         shuffle = False)
     resize_and_rescale = tf.keras.Sequential([
         tf.keras.layers.experimental.preprocessing.Resizing(imageSize,imageSize),
@@ -79,6 +98,8 @@ def createCallbacks(saveDir, earlystop, nlayers, learnRate, latentDim, nfilters,
     tb_name = 'CVAE_nlayers' + str(nlayers) + '_lr' + str(learnRate) + '_latent' + str(latentDim) + '_filters' + str(nfilters) + '_kernel' + str(kernelSize) + '_{}'.format(int(time.time()))
     tb = TensorBoard(log_dir= join(saveDir, tb_name), histogram_freq=1, embeddings_freq = 2)
     callbacks.append(tb)
+    #performance = PerformancePlotCallback(val_ds)
+    #callbacks.append(performance)
     if earlystop:
         earlystop = EarlyStopping(monitor='loss', min_delta=0, patience=8)
         callbacks.append(earlystop)
