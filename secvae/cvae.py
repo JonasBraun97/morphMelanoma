@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras.layers import Conv2D, Flatten, Dense, Conv2DTranspose, Reshape
 from os.path import join
-from tensorflow.keras import layers, Input, Model
+from tensorflow.keras import layers, Input, Model, mixed_precision
 from tensorflow.keras.utils import plot_model
 import glob
 import csv
@@ -15,8 +15,10 @@ class Sampling(layers.Layer):
         z_mean, z_log_var = inputs
         batch = tf.shape(z_mean)[0]
         dim = tf.shape(z_mean)[1]
-        epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
-        return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+        #specifiy float16
+        epsilon = tf.keras.backend.random_normal(shape=(batch, dim), dtype='float16')
+        expo = tf.exp(0.5 * z_log_var)
+        return z_mean + expo * epsilon
 
 def save_reconstruction(reconstruction, epoch):
     for image, label in reconstruction.take(len(reconstruction)):
@@ -76,8 +78,8 @@ class CVAE(tf.keras.Model):
 
         x = Flatten()(x)
         x = Dense(self.interDim, activation="relu")(x)
-        z_mean = Dense(self.latentDim, name="z_mean")(x)
-        z_log_var = Dense(self.latentDim, name="z_log_var")(x)
+        z_mean = Dense(self.latentDim, name="z_mean", dtype=tf.float32)(x)
+        z_log_var = Dense(self.latentDim, name="z_log_var", dtype=tf.float32)(x)
         z = Sampling()([z_mean, z_log_var])
 
         self.encoder = Model(encoderInput, [z_mean, z_log_var, z], name="encoder")
@@ -100,7 +102,7 @@ class CVAE(tf.keras.Model):
             )(x)
             filters //=2
 
-        decoderOutput = Conv2DTranspose(filters = inputShape[2], kernel_size=self.kernelSize, activation="sigmoid", padding="same")(x)
+        decoderOutput = Conv2DTranspose(filters = inputShape[2], kernel_size=self.kernelSize, activation="sigmoid", padding="same", dtype=tf.float32)(x)
 
         self.decoder = Model(latentInput, decoderOutput, name="decoder")
         self.decoder.summary()

@@ -46,6 +46,9 @@ def readingData(inputDir,imageSize, batchSize, shuffle= True, validation = 0.0):
         lambda x : (resize_and_rescale(x)), num_parallel_calls=tf.data.AUTOTUNE)
     augval_ds = val_ds.map(
         lambda x : (resize_and_rescale(x)), num_parallel_calls=tf.data.AUTOTUNE)
+    # improve run time by prefetch data
+    augtrain_ds = augtrain_ds.prefetch(tf.data.AUTOTUNE)
+    augval_ds = augval_ds.prefetch(tf.data.AUTOTUNE)
     return augtrain_ds, augval_ds
 
 
